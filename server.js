@@ -3,11 +3,14 @@ import fs from "fs";
 import cors from "cors";
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000; // Render 환경을 위해 PORT 수정
 const FILE = "./trades.json";
 const INITIAL_BALANCE = 1000;
 
-app.use(cors());
+// [수정된 부분] Netlify 주소 허용
+app.use(cors({
+    origin: ["https://mejin.netlify.app", "http://localhost:3000"]
+}));
 
 // 상태 변수
 let position = null;
@@ -46,7 +49,7 @@ function getHMA(data, length) {
 }
 
 // --------------------
-// 데이터 로드 (과거 데이터 100개)
+// 데이터 로드 & 실시간 가격 조회
 // --------------------
 async function loadHistory() {
     try {
@@ -57,19 +60,16 @@ async function loadHistory() {
     } catch (e) { console.error("History load error:", e); }
 }
 
-// --------------------
-// 실시간 가격 조회
-// --------------------
 async function fetchPrice() {
     try {
         const res = await fetch("https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1m&limit=1");
         const data = await res.json();
-        return Number(data[0][4]); // 종가(Close)
+        return Number(data[0][4]);
     } catch (e) { return null; }
 }
 
 // --------------------
-// 신호 생성 (60으로 변경)
+// 신호 생성 및 거래 처리
 // --------------------
 function getSignal() {
     if (prices.length < 70) return "HOLD";
@@ -90,9 +90,6 @@ function getSignal() {
     return "HOLD";
 }
 
-// --------------------
-// 거래 처리
-// --------------------
 function executeTrade(signal, price) {
     let data = JSON.parse(fs.readFileSync(FILE));
     let pnl = 0;
@@ -119,12 +116,12 @@ function executeTrade(signal, price) {
 }
 
 // --------------------
-// 메인 루프 (매 분 01초에 실행)
+// 루프 (매 분 01초 실행)
 // --------------------
 function startTradeLoop() {
     setInterval(async () => {
         const now = new Date();
-        if (now.getSeconds() === 1) { // 정확히 매 분 1초에 실행
+        if (now.getSeconds() === 1) {
             const price = await fetchPrice();
             if (!price) return;
 
@@ -163,13 +160,11 @@ app.get("/status", (req, res) => {
 });
 
 async function start() {
-    console.log("Server starting... Initializing trades.json");
+    console.log("Server starting...");
     fs.writeFileSync(FILE, JSON.stringify({ balance: INITIAL_BALANCE, history: [] }));
-    
     await loadHistory();
     startTradeLoop();
-    
-    app.listen(PORT, () => console.log("running http://localhost:" + PORT));
+    app.listen(PORT, () => console.log("running on port " + PORT));
 }
 
 start();
